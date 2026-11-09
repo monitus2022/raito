@@ -4,6 +4,13 @@ A private, single-user PWA for learning Japanese from zero to JLPT N4 in roughly
 
 **Status:** Workplan revision 2 is ready for review. The application has not been scaffolded yet; implementation starts with Phase 1 after this PR merges.
 
+## Why "Raito"?
+
+The name works two ways:
+
+- **raito → light** — a lightweight learner and a lightweight app: learn lightning fast.
+- **raito → right** — get the right knowledge, at the right level and the right time.
+
 ## Source of truth
 
 All requirements, schemas, QA gates, phases, and review rules live in [docs/WORKPLAN.MD](docs/WORKPLAN.MD). Read it before changing code.
