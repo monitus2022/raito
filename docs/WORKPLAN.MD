@@ -1073,6 +1073,7 @@ Rules:
 | 18 | Deterministic QA runs in CI; the LLM editor runs locally |
 | 19 | Deployment only from `main` via CI; `content:publish` never deploys |
 | 20 | The 30-day queue simulation is an acceptance gate |
+| 21 | Learner state stays in D1. Re-confirmed against an R2-only object store: R2 conditional writes are atomic and reads are strongly consistent after a write, so it is feasible, but a whole-object rewrite per card, no multi-key atomicity, and no SQL would move merge and replay logic into the app. Durable Objects with SQLite were also considered and rejected as a lateral move for this single-user workload |
 
 ---
 
