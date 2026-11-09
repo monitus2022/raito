@@ -2,7 +2,7 @@
 
 A private, single-user PWA for learning Japanese from zero to JLPT N4 in roughly six months.
 
-**Status:** Workplan revision 2 is ready for review. The application has not been scaffolded yet; implementation starts with Phase 1 after this PR merges.
+**Status:** Phase 1 scaffold is in progress: React/Vite shell, Pages Functions skeleton, D1 migrations, CI, and deploy workflows. Deployment and Access verification are blocked on the Phase 0 owner setup (Cloudflare project, D1, R2, Access).
 
 ## Why "Raito" (ライト)?
 
@@ -23,15 +23,17 @@ All requirements, schemas, QA gates, phases, and review rules live in [docs/WORK
 - React + TypeScript + Vite PWA on Cloudflare Pages, D1, private R2, and Cloudflare Access.
 - Tutor conversation via OpenRouter; audio generated locally with VOICEVOX.
 
-## Planned repository layout
+## Repository layout
 
 ```text
 src/                 React app
 functions/api/       Cloudflare Pages Functions
-pipeline/            Content generation, verification, review, TTS, publish
-content/             Versioned lesson JSON, syllabus, manifests
+shared/              Zod schemas shared by client and functions
+pipeline/            Content generation, verification, review, TTS, publish (Phase 2+)
+content/             Versioned lesson JSON, syllabus, manifests (Phase 2+)
 migrations/          D1 migrations
 e2e/                 Playwright smoke tests
+scripts/             Local tooling
 docs/                Workplan and project documentation
 ```
 

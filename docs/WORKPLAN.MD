@@ -225,6 +225,7 @@ raito/                 # existing repository; rename to japanese-tutor before Ph
   functions/
     api/               # Pages Functions
     _middleware.ts     # Access JWT validation
+  shared/              # Zod schemas shared by client and functions
   pipeline/            # Node CLI (tsx)
     gen.ts
     verify.ts          # deterministic gates (no network/key; G13 when audio exists)

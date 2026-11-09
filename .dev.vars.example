@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+#
+# Local-only bypass for Cloudflare Access. Never set this in production.
+DEV_BYPASS_ACCESS=true
+
+# Phase 2+ pipeline. Keep unset until needed.
+OPENROUTER_API_KEY=
+GEN_MODEL=
+TUTOR_MODEL=
