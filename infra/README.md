@@ -66,6 +66,31 @@ Configure once, before the first run:
 Variables, not secrets: none of these five is sensitive, and keeping them
 readable makes the plan output comprehensible.
 
+Set them with `gh` once it is authenticated, or through
+Settings → Secrets and variables → Actions:
+
+```bash
+gh variable set CF_ACCOUNT_ID  --body "<account id>"
+gh variable set CF_ZONE_ID     --body "<zone id>"
+gh variable set APP_DOMAIN     --body "raito.example.com"
+gh variable set CF_TEAM_DOMAIN --body "<team>"
+gh variable set OWNER_EMAIL    --body "you@example.com"
+
+gh secret set CLOUDFLARE_API_TOKEN
+gh secret set R2_ACCESS_KEY_ID
+gh secret set R2_SECRET_ACCESS_KEY
+```
+
+The three R2/Cloudflare credentials must be **repository** secrets, not
+environment secrets: the `plan` job runs on pull requests and has no
+`production` environment, so environment-scoped secrets would gate every PR
+behind an approval.
+
+`.env` is not used anywhere in this project. Wrangler reads `.dev.vars`,
+Terraform reads `terraform.tfvars` and environment variables, and GitHub
+Actions reads `vars.*` and `secrets.*`. A tracked `.env` is rejected by
+`pnpm check:secrets`.
+
 After the first `apply`, copy the outputs into `wrangler.toml`:
 
 ```bash
