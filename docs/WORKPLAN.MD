@@ -909,9 +909,10 @@ Rough effort (agent-days; owner review is separate): Phase 1 1–2; Phase 2 4–
 - [ ] Use the existing private repo `raito` (or rename it to `japanese-tutor` before Phase 1); add the agent.
 - [ ] Enable branch protection on `main`: require a PR, require one approval, block force pushes and deletion (§12.6).
 - [ ] `wrangler login`, or provide a scoped API token with Pages, D1, R2, Access, and DNS edit permissions.
-- [ ] Fill in `infra/terraform.tfvars` and run `terraform apply` in `infra/`. It creates the D1 database, the private R2 bucket, the Pages project, the custom domain with its DNS record, and both Access applications (custom domain and `*.pages.dev`). The agent runs this when given a token; the owner supplies the account, zone, subdomain, and email.
+- [ ] Create the R2 state bucket `raito-tfstate` and an R2 token scoped to it; set `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_API_TOKEN`, and the five `CF_*` / `APP_DOMAIN` / `OWNER_EMAIL` repository variables.
+- [ ] Run the Infrastructure workflow. It creates the D1 database, the private R2 bucket, the Pages project, the custom domain with its DNS record, and both Access applications (custom domain and `*.pages.dev`). Re-runs are no-ops.
 - [ ] Copy `terraform output wrangler_vars` and `d1_database_id` into `wrangler.toml`.
-- [ ] Manual, because no API expresses it: enabling Zero Trust for the account the first time (terms, team domain), accepting R2 billing if prompted, adding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions secrets, and installing VOICEVOX plus ffmpeg.
+- [ ] Manual, because no API expresses it: enabling Zero Trust for the account the first time (terms, team domain), accepting R2 billing if prompted, adding required reviewers to the `production` environment, and installing VOICEVOX plus ffmpeg.
 - [ ] Put the OpenRouter key in `.dev.vars`; set a monthly cap (suggest $10). Do not put it in CI for `content:verify`.
 - [ ] Confirm the subdomain, the Access email, the profile timezone, and the target exam date (if any).
 
@@ -1074,6 +1075,7 @@ Rules:
 | 20 | The 30-day queue simulation is an acceptance gate |
 | 21 | Learner state stays in D1. Re-confirmed against an R2-only object store: R2 conditional writes are atomic and reads are strongly consistent after a write, so it is feasible, but a whole-object rewrite per card, no multi-key atomicity, and no SQL would move merge and replay logic into the app. Durable Objects with SQLite were also considered and rejected as a lateral move for this single-user workload |
 | 22 | Cloudflare infrastructure is managed in Terraform under `infra/`, not by dashboard clicks. Content deployment (`wrangler pages deploy`) and D1 migrations stay in Wrangler; Terraform owns resource creation only |
+| 23 | Terraform runs from `.github/workflows/infra.yml`, not from `deploy.yml`: plan on PRs that touch `infra/`, apply on `main` behind the `production` environment. State lives in R2 so runs are idempotent; a separate deploy workflow keeps an app merge from mutating the access perimeter |
 
 ---
 

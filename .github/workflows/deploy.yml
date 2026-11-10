@@ -33,6 +33,13 @@ jobs:
       - name: Rebuild native tooling
         run: pnpm rebuild esbuild workerd
 
+      - name: Check wrangler configuration
+        run: |
+          if grep -q "REPLACE_WITH" wrangler.toml; then
+            echo "::error::wrangler.toml still contains placeholders. Run the Infrastructure workflow, then paste d1_database_id and wrangler_vars into wrangler.toml."
+            exit 1
+          fi
+
       - name: Build
         run: pnpm build
 
