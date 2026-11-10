@@ -36,19 +36,12 @@ jobs:
       - name: Check wrangler configuration
         run: |
           if grep -q "REPLACE_WITH" wrangler.toml; then
-            echo "::error::wrangler.toml still contains placeholders. Run the Infrastructure workflow, then paste d1_database_id and wrangler_vars into wrangler.toml."
+            echo "::error::wrangler.toml still contains placeholders. Run the Infrastructure workflow, then paste terraform output wrangler_vars into wrangler.toml."
             exit 1
           fi
 
       - name: Build
         run: pnpm build
-
-      - name: Apply D1 migrations
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: d1 migrations apply japanese_tutor --remote
 
       - name: Deploy Pages
         uses: cloudflare/wrangler-action@v3

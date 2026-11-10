@@ -12,7 +12,6 @@ laptop read the same file.
 
 | Resource | Type |
 |---|---|
-| `japanese_tutor` | D1 database (`prevent_destroy`) |
 | `japanese-tutor-audio` | Private R2 bucket (`prevent_destroy`) |
 | `raito` | Pages project, Direct Upload, production branch `main` |
 | `<subdomain>` | Pages custom domain + proxied CNAME |
@@ -22,7 +21,7 @@ laptop read the same file.
 ## Not managed here
 
 - **Deploying content.** `wrangler pages deploy` runs from `.github/workflows/deploy.yml`.
-- **D1 migrations.** `wrangler d1 migrations apply` runs from the same workflow.
+- **Learner state.** It lives in the browser (IndexedDB), so there is no database resource here and deploy applies no migrations.
 - **First-time Zero Trust activation.** Enabling Zero Trust for the account and choosing the team domain is a one-off dashboard action.
 
 ## One-time bootstrap
@@ -95,7 +94,6 @@ After the first `apply`, copy the outputs into `wrangler.toml`:
 
 ```bash
 terraform -chdir=infra output wrangler_vars
-terraform -chdir=infra output d1_database_id
 ```
 
 `deploy.yml` fails loudly if `wrangler.toml` still contains `REPLACE_WITH`.
@@ -132,7 +130,7 @@ terraform plan
 `backend.hcl` and `terraform.tfvars` are gitignored. No secret enters state: the
 API token comes from the environment and the provider block is empty.
 
-Token permissions: Cloudflare Pages Edit, D1 Edit, Workers R2 Storage Edit,
+Token permissions: Cloudflare Pages Edit, Workers R2 Storage Edit,
 Access: Apps and Policies Edit, Zone DNS Edit, Zone Read.
 
 ## Caveats
@@ -145,5 +143,5 @@ Access: Apps and Policies Edit, Zone DNS Edit, Zone Read.
 - Applying from CI does not verify that Access actually works; that still needs
   a browser.
 - Do not create these resources in the dashboard as well. `terraform plan` will
-  show the drift, and `prevent_destroy` on D1 and R2 means `destroy` cannot
-  delete the learner's progress or the audio.
+  show the drift, and `prevent_destroy` on R2 means `destroy` cannot delete the
+  rendered audio.

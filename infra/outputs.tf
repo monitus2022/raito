@@ -1,8 +1,3 @@
-output "d1_database_id" {
-  description = "Paste into wrangler.toml as d1_databases[0].database_id."
-  value       = cloudflare_d1_database.state.id
-}
-
 output "r2_bucket_name" {
   description = "Must equal AUDIO bucket_name in wrangler.toml."
   value       = cloudflare_r2_bucket.audio.name

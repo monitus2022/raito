@@ -29,12 +29,6 @@ variable "project_name" {
   default     = "raito"
 }
 
-variable "d1_database_name" {
-  description = "D1 database name. Must match `database_name` in wrangler.toml."
-  type        = string
-  default     = "japanese_tutor"
-}
-
 variable "r2_bucket_name" {
   description = "Private R2 bucket for audio. Must match `bucket_name` in wrangler.toml."
   type        = string

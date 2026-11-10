@@ -18,13 +18,11 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check:secrets": "node scripts/check-secrets.mjs",
-    "deploy": "wrangler pages deploy dist",
-    "db:migrate:local": "wrangler d1 migrations apply japanese_tutor --local",
-    "db:migrate:remote": "wrangler d1 migrations apply japanese_tutor --remote",
-    "db:export": "wrangler d1 export japanese_tutor --remote --output=.wrangler/raito-export.sql"
+    "deploy": "wrangler pages deploy dist"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.107.1",
+    "idb": "^8.0.4",
     "jose": "^6.2.16",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -44,6 +42,7 @@
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
+    "fake-indexeddb": "^6.2.8",
     "globals": "^17.14.0",
     "tailwindcss": "^4.3.5",
     "typescript": "^5.9.3",

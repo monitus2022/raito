@@ -2,12 +2,7 @@ name = "raito"
 compatibility_date = "2026-11-09"
 pages_build_output_dir = "dist"
 
-# Phase 0 owner setup: replace this placeholder with the D1 database id.
-[[d1_databases]]
-binding = "DB"
-database_name = "japanese_tutor"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
-migrations_dir = "migrations"
+# No D1 binding: learner state lives in the browser (workplan §6, decision 24).
 
 # Phase 0 owner setup: create this private R2 bucket.
 [[r2_buckets]]
