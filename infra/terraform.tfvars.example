@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and fill in. Never commit terraform.tfvars.
+#
+# None of these values are secrets, but they identify your account and the only
+# email that can reach the app, so keep the file local.
+
+account_id  = "00000000000000000000000000000000"
+zone_id     = "00000000000000000000000000000000"
+domain      = "raito.example.com"
+team_domain = "my-team"
+owner_email = "you@example.com"
+
+# Optional overrides. These must stay in sync with wrangler.toml.
+# project_name     = "raito"
+# d1_database_name = "japanese_tutor"
+# r2_bucket_name   = "japanese-tutor-audio"
+# r2_location      = "APAC"

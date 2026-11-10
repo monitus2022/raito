@@ -43,6 +43,17 @@ jobs:
       - name: Secret scan
         run: pnpm check:secrets
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform format
+        run: terraform -chdir=infra fmt -check -recursive
+
+      - name: Terraform validate
+        run: |
+          terraform -chdir=infra init -backend=false -input=false
+          terraform -chdir=infra validate -no-color
+
       - name: Build
         run: pnpm build
 

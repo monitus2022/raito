@@ -32,6 +32,7 @@ shared/              Zod schemas shared by client and functions
 pipeline/            Content generation, verification, review, TTS, publish (Phase 2+)
 content/             Versioned lesson JSON, syllabus, manifests (Phase 2+)
 migrations/          D1 migrations
+infra/               Terraform for D1, R2, Pages, DNS, and Access
 e2e/                 Playwright smoke tests
 scripts/             Local tooling
 docs/                Workplan and project documentation

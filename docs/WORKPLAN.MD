@@ -243,6 +243,7 @@ raito/                 # existing repository; rename to japanese-tutor before Ph
     sources.json       # generated attribution index
     manifest.json      # content version + tombstones
   migrations/          # D1 SQL
+  infra/               # Terraform: D1, R2, Pages, DNS, Access
   e2e/                 # Playwright smoke tests
   public/
   scripts/
@@ -903,16 +904,14 @@ Each phase below is one branch and one PR (see §12). Do not start a phase until
 
 Rough effort (agent-days; owner review is separate): Phase 1 1–2; Phase 2 4–6; Phase 3 3–5; Phase 4a 3–5; Phase 4b 1–2; Phase 5a 3–4; Phase 5b 3–4; Phase 6 2–4; Phase 7 3–5; each later unit 0.5–1.5 plus review. These are estimates, not commitments; update them after Phase 1.
 
-### Phase 0 — Owner setup (not the agent)
+### Phase 0 — Account setup and infrastructure provisioning
 
 - [ ] Use the existing private repo `raito` (or rename it to `japanese-tutor` before Phase 1); add the agent.
 - [ ] Enable branch protection on `main`: require a PR, require one approval, block force pushes and deletion (§12.6).
-- [ ] `wrangler login` or provide a scoped API token.
-- [ ] Create D1 database `japanese_tutor`; create a **private** R2 bucket `japanese-tutor-audio`.
-- [ ] Create the Pages project and attach the subdomain. Disable preview deployments, or protect every preview hostname with Access.
-- [ ] Create a Cloudflare Access application for the subdomain; allow only the owner's email. Configure the middleware to validate the Access JWT.
-- [ ] Install VOICEVOX (app or Docker); confirm `127.0.0.1:50021` responds. Install ffmpeg.
-- [ ] Pin Node and pnpm versions (`.nvmrc`, `engines`). Confirm `pnpm` and `tsx` work.
+- [ ] `wrangler login`, or provide a scoped API token with Pages, D1, R2, Access, and DNS edit permissions.
+- [ ] Fill in `infra/terraform.tfvars` and run `terraform apply` in `infra/`. It creates the D1 database, the private R2 bucket, the Pages project, the custom domain with its DNS record, and both Access applications (custom domain and `*.pages.dev`). The agent runs this when given a token; the owner supplies the account, zone, subdomain, and email.
+- [ ] Copy `terraform output wrangler_vars` and `d1_database_id` into `wrangler.toml`.
+- [ ] Manual, because no API expresses it: enabling Zero Trust for the account the first time (terms, team domain), accepting R2 billing if prompted, adding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions secrets, and installing VOICEVOX plus ffmpeg.
 - [ ] Put the OpenRouter key in `.dev.vars`; set a monthly cap (suggest $10). Do not put it in CI for `content:verify`.
 - [ ] Confirm the subdomain, the Access email, the profile timezone, and the target exam date (if any).
 
@@ -1074,6 +1073,7 @@ Rules:
 | 19 | Deployment only from `main` via CI; `content:publish` never deploys |
 | 20 | The 30-day queue simulation is an acceptance gate |
 | 21 | Learner state stays in D1. Re-confirmed against an R2-only object store: R2 conditional writes are atomic and reads are strongly consistent after a write, so it is feasible, but a whole-object rewrite per card, no multi-key atomicity, and no SQL would move merge and replay logic into the app. Durable Objects with SQLite were also considered and rejected as a lateral move for this single-user workload |
+| 22 | Cloudflare infrastructure is managed in Terraform under `infra/`, not by dashboard clicks. Content deployment (`wrangler pages deploy`) and D1 migrations stay in Wrangler; Terraform owns resource creation only |
 
 ---
 
