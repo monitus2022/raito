@@ -90,7 +90,7 @@ Target duration: 30–45 minutes on weekdays, up to 60 on weekends (a second les
 - N5 Unit 1 preview: three lessons + one checkpoint quiz, fully verified, with audio.
 - Tutor conversation via OpenRouter.
 - Progress view: coverage, mastery, weak list.
-- Progress export/backup and cross-device settings.
+- Progress export/backup as a versioned JSON file.
 - Content pipeline: generate → verify → review → audio → publish.
 - Deployed on Cloudflare Pages, private behind Cloudflare Access; audio served privately.
 
@@ -967,13 +967,13 @@ Rough effort (agent-days; owner review is separate): Phase 1 1–2; Phase 2 4–
 ### Phase 4b — Review/progress shells and settings
 
 - Review and progress route shells; settings UI (furigana, accent, voice, speed, export, reset).
-- Persist settings through `/api/settings`; wire the reset confirmation and export-first flow.
-- **Checkpoint:** settings survive a reload and a second device; reset requires confirmation.
+- Persist settings through the state store; wire the reset confirmation and export-first flow.
+- **Checkpoint:** settings survive a reload; reset requires confirmation.
 
 ### Phase 5a — FSRS, attempts, and review queue
 
 - FSRS wiring with `state`/`scheduled_days`/`learning_steps`; attempts; staged card introduction.
-- `GET /api/review/queue`, `POST /api/review`; server-side caps and priority.
+- Queue composition and caps computed in the state layer; no server round trip.
 - **Checkpoint:** two days of simulated review produce a correct queue; no card type is introduced before its stage.
 
 ### Phase 5b — Planner, backlog brake, and quiz grading
@@ -991,7 +991,7 @@ Rough effort (agent-days; owner review is separate): Phase 1 1–2; Phase 2 4–
 ### Phase 7 — Progress, polish, and backup
 
 - Coverage view, weak list, readiness; empty/error states; loading states; iPhone audio unlock.
-- `GET /api/export`; documented restore; Playwright smoke; secret scan.
+- Export/import in settings; documented restore; Playwright smoke; secret scan.
 - **Checkpoint:** acceptance criteria §11 all pass; export has been restored once.
 
 ### Phase 8 — Scale
