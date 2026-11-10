@@ -1,6 +1,6 @@
 # Japanese Tutor — Workplan, Requirements & Spec
 
-**Status:** Ready for implementation — revision 2 (review issues resolved)
+**Status:** Ready for implementation — revision 3 (local-first learner state)
 **Owner:** single user (native Cantonese speaker, professional written Chinese and English)
 **Implementer:** AI agent, reviewed by the owner
 **Date:** 2026-11-09
@@ -18,7 +18,7 @@ Hard rules for the implementing agent:
 2. **One stage, one PR, then stop.** After each phase or content unit, open the PR and wait. Do not begin the next stage until it is approved and merged.
 3. **Do not mass-generate content.** Build the preview set (N5 Unit 1, three lessons) end to end, get owner approval, then scale.
 4. **Never put secrets in the repo.** Use `.dev.vars` locally and `wrangler secret put` in production.
-5. **Content is static and versioned in git.** D1 stores learner progress, settings, and session/attempt metadata only. It never stores content item metadata; `item_id` values are references into the bundled content.
+5. **Content is static and versioned in git.** Learner progress, settings, and session/attempt metadata live in browser IndexedDB, never on the server. No content item metadata is stored at all; `item_id` values are references into the bundled content.
 6. **Every piece of generated Japanese content passes the QA gates in §8 before it ships.**
 7. **The UI is Traditional Chinese only.** Code, comments, commit messages, and docs are English.
 8. When a decision in this document is ambiguous, prefer the smaller scope and ask.
@@ -38,6 +38,16 @@ This revision resolves the blocking issues found in the first review:
 - Deployment and CI separated: `content:publish` builds; deployment happens only from `main` (§8.4, §12.5).
 - Backup/export, content versioning, and a 30-day queue simulation added to acceptance (§11, §18).
 - Licensing and cost estimates corrected (§14–15).
+
+### 0.2 Revision 3 changes
+
+Learner state moved out of D1 and into the browser.
+
+- No server-side learner state. Progress, review state, attempts, settings, and tutor transcripts live in IndexedDB (§6).
+- The Worker is stateless: `/api/health`, `/api/audio/:hash`, `/api/chat` (§10.7).
+- The D1 database, its migrations, and its Terraform resource are removed; deploy no longer applies migrations (§5, §13).
+- A JSON snapshot export/import replaces the server-side backup path (§6.1).
+- This does not open the app to the public. Access still gates the single owner; a public release is a separate decision gated by licensing (§16).
 
 ---
 
@@ -80,7 +90,7 @@ Target duration: 30–45 minutes on weekdays, up to 60 on weekends (a second les
 - N5 Unit 1 preview: three lessons + one checkpoint quiz, fully verified, with audio.
 - Tutor conversation via OpenRouter.
 - Progress view: coverage, mastery, weak list.
-- Progress export/backup and cross-device settings.
+- Progress export/backup as a versioned JSON file.
 - Content pipeline: generate → verify → review → audio → publish.
 - Deployed on Cloudflare Pages, private behind Cloudflare Access; audio served privately.
 
@@ -183,12 +193,13 @@ The final lesson JSON must contain 8–12 words and 1–2 `GrammarPoint` objects
 ```
 Browser (PWA)
   │  static assets from Cloudflare Pages
+  │  IndexedDB: all learner state (progress, review, attempts, settings)
   │  fetch /api/*
   ▼
-Cloudflare Pages Functions (Workers)
+Cloudflare Pages Functions (Workers)   — stateless
   │  OpenRouter (tutor only)        Access JWT validation
   ▼
-D1 (progress/settings)   R2 (private audio)   git (content)
+R2 (private audio)   git (content, bundled at build time)
 ```
 
 ### Stack
@@ -198,12 +209,12 @@ D1 (progress/settings)   R2 (private audio)   git (content)
 | Frontend | React 19 + TypeScript + Vite |
 | Styling | Tailwind CSS, mobile-first |
 | Routing | React Router |
-| State/data | TanStack Query (server state) + local component state |
+| State/data | TanStack Query (network state) + IndexedDB for learner state (§6) |
 | Validation | Zod, shared between client, functions, and pipeline |
 | SRS | `ts-fsrs` (pin the version and FSRS-5/6 model; see decisions log) |
 | PWA | `vite-plugin-pwa`, installable, no offline requirement |
 | API | Cloudflare Pages Functions under `functions/api/` |
-| DB | Cloudflare D1 (SQLite) |
+| DB | None on the server. Learner state is IndexedDB in the browser (§6) |
 | Audio | Cloudflare R2, private; served through an Access-protected Worker route or short-lived signed URLs |
 | Auth | Cloudflare Access, email one-time code, one allowed address; `_middleware` validates the Access JWT, not the email header |
 | Secrets | `.dev.vars` locally, `wrangler secret put` in production |
@@ -225,6 +236,7 @@ raito/                 # existing repository; rename to japanese-tutor before Ph
   functions/
     api/               # Pages Functions
     _middleware.ts     # Access JWT validation
+  shared/              # Zod schemas shared by client and functions
   pipeline/            # Node CLI (tsx)
     gen.ts
     verify.ts          # deterministic gates (no network/key; G13 when audio exists)
@@ -241,7 +253,8 @@ raito/                 # existing repository; rename to japanese-tutor before Ph
     glossary.zh.yaml
     sources.json       # generated attribution index
     manifest.json      # content version + tombstones
-  migrations/          # D1 SQL
+  migrations/          # removed in revision 3; no server-side learner state
+  infra/               # Terraform: R2, Pages, DNS, Access
   e2e/                 # Playwright smoke tests
   public/
   scripts/
@@ -260,113 +273,99 @@ Single package, pnpm, no monorepo.
 
 ---
 
-## 6. Data model (D1)
+## 6. Data model (IndexedDB, local-first)
 
-```sql
-CREATE TABLE profile (
-  id               TEXT PRIMARY KEY,          -- always 'me'
-  target_level     TEXT NOT NULL DEFAULT 'N4',
-  target_exam_date TEXT,
-  timezone         TEXT NOT NULL DEFAULT 'Asia/Hong_Kong',
-  created_at       TEXT NOT NULL
-);
+Learner state lives in the browser. The Worker holds no per-user data: it
+validates Access for the owner and proxies the tutor. Content is not in the
+database either; `item_id` values reference the bundled content
+(`content/units/...`), and git remains the single source of truth.
 
--- Content item metadata is NOT stored in D1. `item_id` values reference IDs
--- in the bundled content (content/units/...). Git remains the single source
--- of truth for content, which avoids drift and publish-time writes.
+Database `raito`, version 1:
 
-CREATE TABLE attempts (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  item_id       TEXT,                      -- nullable for quiz items without an item id
-  card_type     TEXT,                      -- reading | meaning | audio | cloze | production; null for conversation-only corrections
-  correct       INTEGER NOT NULL,
-  latency_ms    INTEGER,
-  mode          TEXT NOT NULL,             -- review | quiz | conversation
-  lesson_id     TEXT,
-  session_id    TEXT,                      -- conversation session, when mode = conversation
-  created_at    TEXT NOT NULL
-);
-CREATE INDEX idx_attempts_item ON attempts(item_id, created_at);
-CREATE INDEX idx_attempts_mode ON attempts(mode, created_at);
+| Store | Key | Indexes | Contents |
+|---|---|---|---|
+| `meta` | `key` | — | `schemaVersion`, `createdAt`, `lastExportAt` |
+| `profile` | `id` (`'me'`) | — | target level, exam date, timezone |
+| `settings` | `id` (`'me'`) | — | furigana, accent, voice, speed |
+| `review` | `[item_id, card_type]` | `due_at`, `item_id` | FSRS scheduling state |
+| `attempts` | `id` (auto) | `item_id`, `created_at`, `mode` | every answer, append-only |
+| `lessons` | `lesson_id` | `unit_id` | lesson and checkpoint progress |
+| `conversations` | `id` (auto) | `session_id` | tutor turns |
+| `daily` | `day` (`YYYY-MM-DD`) | — | due / reviewed / new / backlog / consolidation |
+| `flags` | `id` (auto) | `status` | audio, content, and UI review flags |
 
-CREATE TABLE review_state (
-  item_id        TEXT NOT NULL,
-  card_type      TEXT NOT NULL,
-  state          TEXT NOT NULL DEFAULT 'new',  -- new | learning | review | relearning
-  stability      REAL NOT NULL DEFAULT 0,
-  difficulty     REAL NOT NULL DEFAULT 0,
-  elapsed_days   INTEGER NOT NULL DEFAULT 0,
-  scheduled_days INTEGER NOT NULL DEFAULT 0,
-  learning_steps INTEGER NOT NULL DEFAULT 0,
-  due_at         TEXT NOT NULL,
-  reps           INTEGER NOT NULL DEFAULT 0,
-  lapses         INTEGER NOT NULL DEFAULT 0,
-  last_review    TEXT,
-  updated_at     TEXT NOT NULL,
-  PRIMARY KEY (item_id, card_type)
-);
-CREATE INDEX idx_review_due ON review_state(due_at);
-CREATE INDEX idx_review_item ON review_state(item_id);
+Record shapes match the previous relational model field for field, so §10.4–§10.5
+are unchanged:
 
-CREATE TABLE lesson_progress (
-  lesson_id     TEXT PRIMARY KEY,
-  unit_id       TEXT NOT NULL,
-  kind          TEXT NOT NULL DEFAULT 'lesson', -- lesson | checkpoint
-  status        TEXT NOT NULL,                  -- available | in_progress | done
-  score         REAL,
-  started_at    TEXT,
-  completed_at  TEXT
-);
+```ts
+type ReviewRecord = {
+  item_id: string;
+  card_type: "reading" | "meaning" | "audio" | "cloze" | "production" | "promotion";
+  state: "new" | "learning" | "review" | "relearning";
+  stability: number;
+  difficulty: number;
+  elapsed_days: number;
+  scheduled_days: number;
+  learning_steps: number;
+  due_at: string;              // UTC ISO 8601
+  reps: number;
+  lapses: number;
+  last_review: string | null;
+  updated_at: string;
+};
 
-CREATE TABLE conversations (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id     TEXT NOT NULL,
-  turn_index     INTEGER NOT NULL,
-  lesson_id      TEXT NOT NULL,
-  role           TEXT NOT NULL,             -- student | tutor
-  content        TEXT NOT NULL,             -- JSON envelope
-  model          TEXT,
-  prompt_version TEXT,
-  created_at     TEXT NOT NULL
-);
-CREATE INDEX idx_conversations_session ON conversations(session_id, turn_index);
-
-CREATE TABLE settings (
-  id            TEXT PRIMARY KEY,               -- always 'me'
-  furigana      TEXT NOT NULL DEFAULT 'all',    -- all | kanji | off
-  accent        TEXT NOT NULL DEFAULT 'on',     -- on | off
-  voice         TEXT NOT NULL DEFAULT 'female',
-  speed         REAL NOT NULL DEFAULT 1.0,
-  updated_at    TEXT NOT NULL
-);
-
-CREATE TABLE daily_stats (
-  day             TEXT PRIMARY KEY,               -- YYYY-MM-DD in profile.timezone
-  due_count       INTEGER NOT NULL,
-  reviewed_count  INTEGER NOT NULL,
-  new_count       INTEGER NOT NULL,
-  backlog         INTEGER NOT NULL,
-  consolidation   INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE flags (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  kind          TEXT NOT NULL,                  -- audio | content | ui
-  ref           TEXT NOT NULL,
-  note          TEXT,
-  status        TEXT NOT NULL DEFAULT 'open',   -- open | resolved | waived
-  created_at    TEXT NOT NULL,
-  resolved_at   TEXT
-);
+type AttemptRecord = {
+  id?: number;                 // autoIncrement
+  item_id: string | null;      // null for quiz items without an item id
+  card_type: ReviewRecord["card_type"] | null;
+  correct: boolean;
+  latency_ms: number | null;
+  mode: "review" | "quiz" | "conversation";
+  lesson_id: string | null;
+  session_id: string | null;   // conversation session, when mode = conversation
+  created_at: string;
+};
 ```
 
 Notes:
 
-- `profile` and `settings` each have exactly one row, seeded by the first migration.
-- `state`, `scheduled_days`, and `learning_steps` are required by `ts-fsrs`'s `Card` type. Pin the `ts-fsrs` version and the FSRS model (FSRS-5 vs FSRS-6) in `package.json` and the decisions log.
-- All timestamps are UTC ISO 8601. The planner uses `profile.timezone` to decide "today"; never use the Worker's local date. `daily_stats` is the persisted day boundary used for the two-day backlog rule, consolidation state, and readiness history.
-- `locked` is intentionally absent: there are no unlock gates. Lessons are presented in order but are not blocked by streaks.
-- No foreign keys: single user, and content IDs intentionally have no D1 parent table. Orphan `review_state` rows are handled by the content tombstone/migration process (§7.11).
+- `profile` and `settings` each hold exactly one record with `id = 'me'`. The
+  shape is kept, rather than collapsed, so a later multi-account revision can
+  add rows instead of reshaping the database.
+- `state`, `scheduled_days`, and `learning_steps` are required by `ts-fsrs`'s
+  `Card` type. Pin the `ts-fsrs` version and the FSRS model (FSRS-5 vs FSRS-6)
+  in `package.json` and the decisions log.
+- All timestamps are UTC ISO 8601. The planner reads `profile.timezone` to
+  decide "today"; never fall back on the device's local date implicitly. `daily`
+  is the persisted day boundary for the two-day backlog rule, consolidation
+  state, and readiness history.
+- The due queue is an index range scan on `review.due_at`, never a store scan.
+- `locked` is intentionally absent: there are no unlock gates. Lessons are
+  presented in order but are not blocked by streaks.
+- No foreign keys and no `user_id`: one browser profile is one learner. Orphan
+  `review` records are pruned at load against the content manifest (§7.11).
+
+### 6.1 Persistence, quota, and loss
+
+- On first run, call `navigator.storage.persist()`. Treat the result as
+  best-effort and surface it in settings when it returns false.
+- Expected size: roughly 0.7 MB of FSRS state and 1–3 MB of attempts after six
+  months of the full N5+N4 course. `localStorage` is not used: it is
+  synchronous, string-only, and capped near 5 MB.
+- Browsers can evict IndexedDB under storage pressure, and Safari's ITP caps
+  script-writable storage for sites that are not installed. Installing the PWA
+  and granting persistence both reduce this risk without removing it. That is
+  why export is a v1 requirement (decision 17), not a nicety.
+- Export writes one JSON document: `{ schemaVersion, exportedAt, stores }`.
+  Import validates with Zod and then either replaces every store (the default)
+  or merges by `updated_at`. A schema mismatch refuses the import and reports
+  the expected version.
+- There is no sync. Two devices are two independent learners until a later
+  revision adds it.
+- Migrations are versioned: `db.version` bumps, and one migration function per
+  version rewrites records inside the `upgradeneeded` transaction.
+- The Worker may not read or write learner state. Any API that would need to is
+  a design error, not an implementation detail.
 
 ---
 
@@ -620,7 +619,7 @@ Provider: **VOICEVOX Engine**, local HTTP at `127.0.0.1:50021`.
 
 - Bundle `content/` as static JSON into the app build. `content:publish` only builds.
 - Deployment is a separate step: `.github/workflows/deploy.yml` runs on `main` after merge, then `wrangler pages deploy`. There is no deployment from a PR or from `content:publish`.
-- No content writes to D1 at publish time.
+- No content writes at publish time. Publish builds the bundle; nothing is uploaded to a database.
 
 ---
 
@@ -652,7 +651,7 @@ A later audio phase (post-v1) adds an automated F0 gate: extract the pitch conto
 | `/lesson/:id` | Dialogue → words → grammar → quiz → conversation |
 | `/review` | Card queue, time-boxed |
 | `/progress` | Coverage, mastery, weak list |
-| `/settings` | Furigana toggle, accent toggle, voice, speed, export, reset (persisted in D1) |
+| `/settings` | Furigana toggle, accent toggle, voice, speed, export, reset (persisted in IndexedDB) |
 | `/about` | Attributions and licences |
 
 No login screen. Cloudflare Access handles entry; the middleware validates the Access JWT, not the email header.
@@ -724,35 +723,56 @@ System prompt must enforce:
 
 ### 10.7 API
 
+The Worker is stateless. No endpoint reads or writes learner state; those
+operations run against IndexedDB in the browser.
+
+Server routes:
+
+```
+GET  /api/health          -> { ok: true }             (unauthenticated)
+GET  /api/audio/:hash     -> audio bytes              (Access-protected)
+POST /api/chat            -> { sessionId, turn }      (tutor proxy)
+```
+
+Client state API, `src/lib/state`, used by the app instead of `fetch`:
+
 ```ts
-type ReviewCard = {
-  itemId: string;
-  cardType: "reading" | "meaning" | "audio" | "cloze" | "production";
-  prompt: string;
-  choices?: string[];
-  answerIndex?: number;
-  audio?: string;
-  sentenceId?: string;
-};
+type CardType = "reading" | "meaning" | "audio" | "cloze" | "production" | "promotion";
+
+interface StateStore {
+  getProfile(): Promise<Profile>;
+  getSettings(): Promise<Settings>;
+  putSettings(next: Settings): Promise<void>;
+
+  dueCards(now: string, limit: number): Promise<ReviewRecord[]>;   // index range on due_at
+  putReview(record: ReviewRecord): Promise<void>;
+
+  appendAttempt(attempt: AttemptRecord): Promise<void>;
+  attemptsFor(itemId: string): Promise<AttemptRecord[]>;
+
+  putLesson(record: LessonProgress): Promise<void>;
+  appendTurn(turn: ConversationTurn): Promise<void>;
+
+  exportSnapshot(): Promise<ExportSnapshot>;
+  importSnapshot(snapshot: ExportSnapshot, mode: "replace" | "merge"): Promise<void>;
+
+  storageInfo(): Promise<{ persisted: boolean; usage?: number; quota?: number }>;
+}
 ```
 
-```
-GET  /api/today              -> { dueCount, newCardsRemaining, nextLesson, consolidation }
-GET  /api/review/queue       -> { cards: ReviewCard[], estimatedMinutes }
-POST /api/review             { itemId, cardType, correct, latencyMs } -> updated ReviewState
-GET  /api/lesson/:id         -> { lesson, progress }
-POST /api/quiz               { lessonId, quizItemId, answerIndex, latencyMs } -> { result, updatedCards }
-POST /api/chat               { sessionId?, lessonId, message } -> { sessionId, turn: TutorTurn }
-POST /api/lesson/:id/done    { score? }
-GET  /api/progress
-GET  /api/settings
-PUT  /api/settings           { furigana, accent, voice, speed }
-GET  /api/export             -> JSON snapshot of progress/settings (owner only)
-POST /api/flag               { kind, ref, note }
-GET  /api/health
-```
+Rules:
 
-All request and response bodies are validated with shared Zod schemas. `_middleware.ts` validates `Cf-Access-Jwt-Assertion` against the team JWKS and the Access application AUD; it does not trust `Cf-Access-Authenticated-User-Email`. Every hostname (custom domain, `pages.dev`, preview URLs) must be behind Access or return 404. `/api/health` is the only unauthenticated route and returns no data. Restore is a CLI operation (`wrangler d1 import` or a documented migration), not a public API.
+- Components never touch `fetch` or `indexedDB` directly; they call the store.
+  This is what keeps a future server-backed or synced implementation a contained
+  change.
+- The tutor proxy receives a compact summary of weak items per request, never the
+  full state. Transcripts stay on the device.
+- Every request and response body is validated with shared Zod schemas.
+- `_middleware.ts` validates `Cf-Access-Jwt-Assertion` against the team JWKS and
+  the Access application AUD; it does not trust `Cf-Access-Authenticated-User-Email`.
+- Every hostname (custom domain, `pages.dev`, preview URLs) must be behind Access
+  or return 404. `/api/health` is the only unauthenticated route and returns no data.
+- Restore is a file import in the UI, not an API.
 
 ---
 
@@ -902,16 +922,15 @@ Each phase below is one branch and one PR (see §12). Do not start a phase until
 
 Rough effort (agent-days; owner review is separate): Phase 1 1–2; Phase 2 4–6; Phase 3 3–5; Phase 4a 3–5; Phase 4b 1–2; Phase 5a 3–4; Phase 5b 3–4; Phase 6 2–4; Phase 7 3–5; each later unit 0.5–1.5 plus review. These are estimates, not commitments; update them after Phase 1.
 
-### Phase 0 — Owner setup (not the agent)
+### Phase 0 — Account setup and infrastructure provisioning
 
 - [ ] Use the existing private repo `raito` (or rename it to `japanese-tutor` before Phase 1); add the agent.
 - [ ] Enable branch protection on `main`: require a PR, require one approval, block force pushes and deletion (§12.6).
-- [ ] `wrangler login` or provide a scoped API token.
-- [ ] Create D1 database `japanese_tutor`; create a **private** R2 bucket `japanese-tutor-audio`.
-- [ ] Create the Pages project and attach the subdomain. Disable preview deployments, or protect every preview hostname with Access.
-- [ ] Create a Cloudflare Access application for the subdomain; allow only the owner's email. Configure the middleware to validate the Access JWT.
-- [ ] Install VOICEVOX (app or Docker); confirm `127.0.0.1:50021` responds. Install ffmpeg.
-- [ ] Pin Node and pnpm versions (`.nvmrc`, `engines`). Confirm `pnpm` and `tsx` work.
+- [ ] `wrangler login`, or provide a scoped API token with Pages, R2, Access, and DNS edit permissions.
+- [ ] Create the R2 state bucket `raito-tfstate` and an R2 token scoped to it; set `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_API_TOKEN`, and the five `CF_*` / `APP_DOMAIN` / `OWNER_EMAIL` repository variables.
+- [ ] Run the Infrastructure workflow. It creates the private R2 bucket, the Pages project, the custom domain with its DNS record, and both Access applications (custom domain and `*.pages.dev`). Re-runs are no-ops.
+- [ ] Copy `terraform output wrangler_vars` into `wrangler.toml`.
+- [ ] Manual, because no API expresses it: enabling Zero Trust for the account the first time (terms, team domain), accepting R2 billing if prompted, adding required reviewers to the `production` environment, and installing VOICEVOX plus ffmpeg.
 - [ ] Put the OpenRouter key in `.dev.vars`; set a monthly cap (suggest $10). Do not put it in CI for `content:verify`.
 - [ ] Confirm the subdomain, the Access email, the profile timezone, and the target exam date (if any).
 
@@ -919,7 +938,7 @@ Rough effort (agent-days; owner review is separate): Phase 1 1–2; Phase 2 4–
 
 - Vite + React + TS + Tailwind + Router + Query + Zod + ts-fsrs (pin the version and FSRS model).
 - Pages Functions skeleton, `_middleware.ts` (Access JWT validation), `/api/health`.
-- D1 migrations from §6; seed `profile` and `settings`; `wrangler.toml`; non-secret `TEAM_DOMAIN` and `POLICY_AUD` vars for Access JWT validation.
+- IndexedDB state layer from §6 (`src/lib/state`): schema, versioned migrations, due-queue index, JSON export/import. `wrangler.toml`; non-secret `TEAM_DOMAIN` and `POLICY_AUD` vars for Access JWT validation.
 - `.github/workflows/ci.yml` (typecheck, lint, test, build, secret scan) and `deploy.yml` (main only).
 - Deploy a hello-world build to a protected preview (or to `main` after merge) and verify Access rejects a request without a JWT and accepts the owner.
 - **Checkpoint:** owner can open the deployed URL, gets the Access email code, sees "ok"; `pages.dev` and preview URLs are closed.
@@ -948,13 +967,13 @@ Rough effort (agent-days; owner review is separate): Phase 1 1–2; Phase 2 4–
 ### Phase 4b — Review/progress shells and settings
 
 - Review and progress route shells; settings UI (furigana, accent, voice, speed, export, reset).
-- Persist settings through `/api/settings`; wire the reset confirmation and export-first flow.
-- **Checkpoint:** settings survive a reload and a second device; reset requires confirmation.
+- Persist settings through the state store; wire the reset confirmation and export-first flow.
+- **Checkpoint:** settings survive a reload; reset requires confirmation.
 
 ### Phase 5a — FSRS, attempts, and review queue
 
 - FSRS wiring with `state`/`scheduled_days`/`learning_steps`; attempts; staged card introduction.
-- `GET /api/review/queue`, `POST /api/review`; server-side caps and priority.
+- Queue composition and caps computed in the state layer; no server round trip.
 - **Checkpoint:** two days of simulated review produce a correct queue; no card type is introduced before its stage.
 
 ### Phase 5b — Planner, backlog brake, and quiz grading
@@ -972,7 +991,7 @@ Rough effort (agent-days; owner review is separate): Phase 1 1–2; Phase 2 4–
 ### Phase 7 — Progress, polish, and backup
 
 - Coverage view, weak list, readiness; empty/error states; loading states; iPhone audio unlock.
-- `GET /api/export`; documented restore; Playwright smoke; secret scan.
+- Export/import in settings; documented restore; Playwright smoke; secret scan.
 - **Checkpoint:** acceptance criteria §11 all pass; export has been restored once.
 
 ### Phase 8 — Scale
@@ -1015,7 +1034,8 @@ Rules:
 
 | Item | Estimate |
 |---|---|
-| Cloudflare Pages / D1 / Access | free tier |
+| Cloudflare Pages / Access | free tier |
+| Browser storage (per learner, ~3 MB after six months) | free; on the user's device |
 | R2 (~0.5–1 GB audio for 150 lessons, two speeds) | free tier / cents |
 | VOICEVOX | free, local |
 | OpenRouter tutor | $1–5/month at 30–45 min/day; cap $10 |
@@ -1038,9 +1058,9 @@ Rules:
 | Scope creep | explicit non-goals §2 |
 | VOICEVOX voice sounds synthetic | bake-off; provider interface; Azure fallback |
 | iOS audio blocked | explicit user gesture before first play; tap-to-start; preload after gesture |
-| D1 latency | single user; index `due_at`; cache static content in the bundle |
-| D1 data loss | nightly export; documented restore; test the restore once |
-| Content drift between git and D1 | no `items` table; content IDs only; manifest + tombstones |
+| Browser storage eviction or device loss | `navigator.storage.persist()`; install the PWA; JSON export; test the restore once |
+| Progress stranded on one device | export/import is the migration path; no sync in v1 |
+| Content drift between bundle and stored state | no content metadata stored; `item_id` references only; prune orphans against the manifest at load |
 | Access bypass | JWT validation; all hostnames behind Access; private R2 |
 | Secrets leaked | `.dev.vars` ignored; Worker secrets; no keys in `wrangler.toml`; secret scan |
 | Licensing violation (public audio/copyright) | private R2; JLPT links only; licence audit before any public release |
@@ -1062,8 +1082,8 @@ Rules:
 | 8 | Tutor 70/30 Chinese–Japanese at N5, 50/50 at N4; enforced in the prompt and tracked per turn |
 | 9 | Light pitch-accent display from N5; no drilling; toggle in settings |
 | 10 | No ASR, handwriting, reminders, offline, multi-user |
-| 11 | Content static in git; D1 stores progress, settings, and sessions only; no `items` table; audio in private R2 |
-| 12 | Cloudflare Pages + Functions + D1 + R2 + Access |
+| 11 | Content static in git; learner state (progress, settings, sessions) lives in browser IndexedDB, not on the server; no `items` store; audio in private R2 |
+| 12 | Cloudflare Pages + Functions + R2 + Access; no server-side database |
 | 13 | OpenRouter for the tutor; model configurable; pin a default and an eval set |
 | 14 | VOICEVOX with accent editing; bake-off decides the final voice; F0 gate post-v1 |
 | 15 | 150 micro-lessons total (N5 72 + N4 78); preview = N5 Unit 1 (3 lessons + checkpoint) |
@@ -1072,6 +1092,10 @@ Rules:
 | 18 | Deterministic QA runs in CI; the LLM editor runs locally |
 | 19 | Deployment only from `main` via CI; `content:publish` never deploys |
 | 20 | The 30-day queue simulation is an acceptance gate |
+| 21 | Learner state stays in D1. Re-confirmed against an R2-only object store: R2 conditional writes are atomic and reads are strongly consistent after a write, so it is feasible, but a whole-object rewrite per card, no multi-key atomicity, and no SQL would move merge and replay logic into the app. Durable Objects with SQLite were also considered and rejected as a lateral move for this single-user workload. **Superseded by 24** |
+| 22 | Cloudflare infrastructure is managed in Terraform under `infra/`, not by dashboard clicks. Content deployment (`wrangler pages deploy`) stays in Wrangler; Terraform owns resource creation only |
+| 23 | Terraform runs from `.github/workflows/infra.yml`, not from `deploy.yml`: plan on PRs that touch `infra/`, apply on `main` behind the `production` environment. State lives in R2 so runs are idempotent; a separate deploy workflow keeps an app merge from mutating the access perimeter |
+| 24 | Learner state is local-first in IndexedDB. Chosen because multi-device sync needs accounts, and accounts are the expensive part of opening the app to other people; browser storage removes that cost. The trade is durability, mitigated by the required JSON export. Supersedes decision 21 and the storage half of decision 11 |
 
 ---
 

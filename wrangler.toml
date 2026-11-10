@@ -1,0 +1,16 @@
+name = "raito"
+compatibility_date = "2026-11-09"
+pages_build_output_dir = "dist"
+
+# No D1 binding: learner state lives in the browser (workplan §6, decision 24).
+
+# Phase 0 owner setup: create this private R2 bucket.
+[[r2_buckets]]
+binding = "AUDIO"
+bucket_name = "japanese-tutor-audio"
+
+# Non-secret runtime configuration. Access secrets stay in Worker secrets.
+[vars]
+TEAM_DOMAIN = "https://REPLACE_WITH_TEAM.cloudflareaccess.com"
+POLICY_AUD = "REPLACE_WITH_POLICY_AUD"
+OWNER_EMAIL = "REPLACE_WITH_OWNER_EMAIL"

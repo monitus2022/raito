@@ -1,0 +1,51 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Rebuild native tooling
+        run: pnpm rebuild esbuild workerd
+
+      - name: Check wrangler configuration
+        run: |
+          if grep -q "REPLACE_WITH" wrangler.toml; then
+            echo "::error::wrangler.toml still contains placeholders. Run the Infrastructure workflow, then paste terraform output wrangler_vars into wrangler.toml."
+            exit 1
+          fi
+
+      - name: Build
+        run: pnpm build
+
+      - name: Deploy Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist

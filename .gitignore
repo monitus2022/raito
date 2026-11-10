@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+test-results/
+.DS_Store
+*.local
+
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfplan
+infra/tfplan
+infra/backend.hcl
+infra/terraform.tfvars
+plan.txt
